@@ -38,7 +38,7 @@ class View {
 	public function __construct() {
 		$this->_request = Request::getInstance();
 		$this->_config = &$GLOBALS['config'];
-		$layout = $this->_request->isAjaxRequest() ? 'ajax.inc' : 'default.inc';
+		$layout = $this->_request->isAjax() ? 'ajax.inc' : 'default.inc';
 		$this->_layout = realpath(dirname(__FILE__) . DS . '..'
 			. DS . 'layouts' . DS . $layout);
 	}
@@ -51,12 +51,10 @@ class View {
 	 * @return	object
 	 */
 	public function getInstance() {
-		if (self::$_instance instanceof View) {
-			return self::$_instance;
-		} else {
+		if (!(self::$_instance instanceof View)) {
 			self::$_instance = new View();
-			return self::$_instance;
 		}
+		return self::$_instance;
 	}
 	
 	/**
@@ -138,9 +136,7 @@ class View {
 		extract($this->_variables);
 
 		if (count($this->_templates) == 0) {
-			$module = !empty($_REQUEST['module']) ? $_REQUEST['module'] : 'index';
-			$action = !empty($_REQUEST['action']) ? $_REQUEST['action'] : 'index';
-			$this->addTemplate($action, $module);
+			$this->addTemplate($this->_request->controller, $this->_request->action);
 		}
 	
 		if (!empty($this->_layout)) {

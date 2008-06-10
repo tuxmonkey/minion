@@ -18,14 +18,47 @@ class Request {
 	static $_instance = null;
 	
 	/**
+ 	 * Object containing all get, post, and cookie variables
+	 */
+	public $params = null;
+
+	/**
+ 	 * Controller that is handling request
+	 */
+	public $controller = 'default';
+
+	/**
+	 * Action that is handling request
+	 */
+	public $action = 'default';
+
+	/**
+	 * Parameters that will be passed to the controller action
+	 */
+	public $actionParams = array();
+
+	/**
 	 * Request Constructor
 	 *
 	 * @return 	object
 	 */
 	public function __construct() {
-		$this->_config = $GLOBALS['config'];
+		$this->config = $GLOBALS['config'];
 		
-		if ($this->_config->url->cleanurl == true) {
+		$this->params = new stdClass;
+		foreach ($_GET as $key => $val) {
+			$this->params->get->$key = $val;
+		}
+
+		foreach ($_POST as $key => $val) {
+			$this->params->post->$key = $val;
+		}
+
+		foreach ($_COOKIE as $key => $val) {
+			$this->params->cookie->$key = $val;
+		}
+
+		if ($this->config->url->cleanurl == true) {
 			$this->parseURI();
 		}
 	}
@@ -36,12 +69,10 @@ class Request {
 	 * @return 	object
 	 */
 	public function getInstance() {
-		if (self::$_instance instanceof Request) {
-			return self::$_instance;
-		} else {
+		if (!(self::$_instance instanceof Request)) {
 			self::$_instance = new Request();
-			return self::$_instance;
 		}
+		return self::$_instance;
 	}
 	
 	/**
@@ -51,36 +82,60 @@ class Request {
 	 * @return	void
 	 */
 	public function parseURI() {
-		$uri = str_replace($this->_config->url->base, '', $_SERVER['REQUEST_URI']);
+		$uri = str_replace($this->config->url->base, '', $_SERVER['REQUEST_URI']);
         $params = explode('/', trim($uri));
 		
-		$_REQUEST['params'] = array();
-	
 		foreach ($params as $param) {
-			$param = filter_var($param, FILTER_SANITIZE_STRING, FILTER_FLAG_STRIP_LOW | FILTER_FLAG_STRIP_HIGH);
 			if (empty($param)) {
 				continue;
 			}
 
-			if (strpos($param, $this->_config->url->separator) === false) {
-				if (!@in_array($param, $this->_config->url->reserved)) {
-					if (!isset($_REQUEST['module']) && file_exists($this->_config->dir->modules . DS . $param)) {
-						$_REQUEST['module'] = $param;
-					} else if (!isset($_REQUEST['action']) && isset($_REQUEST['module'])) {
-						$_REQUEST['action'] = $param;
-					} else if (!isset($_REQUEST['id']) && isset($_REQUEST['action'])) {
-						$_REQUEST['id'] = $param;
+			if (strpos($param, $this->config->url->separator) === false) {
+				if (!@in_array($param, $this->config->url->reserved)) {
+					if (!isset($this->controller) && file_exists($this->config->dir->modules . DS . $param)) {
+						$this->setController($param);
+					} else if (!isset($this->action) && isset($this->controller)) {
+						$this->setAction($param);
+					} else {
+						$this->actionParams[] = $param;
 					}
-					$_REQUEST['params'][] = $param;
 				} else {
 					$this->{$param} = true;
 				}
 			} else {
-				$pieces = explode($this->_config->url->separator, trim($param));
-				$_REQUEST[$pieces[0]] = $pieces[1];
-				$_REQUEST['params'][] = $param;
+				$pieces = explode($this->config->url->separator, trim($param));
+				$this->params->get->{$pieces[0]} = $pieces[1];
 			}
 		}
+	}
+
+	/**
+	 * Set the controller being used for the current request
+	 *
+	 * @access	public
+	 * @param	string	$controller				Name of the controller to be used
+	 * @return	bool
+	 */
+	public function setController($controller) {
+		$controller = filter_var($controller, FILTER_SANITIZE_STRING, FILTER_FLAG_STRIP_LOW | FILTER_FLAG_STRIP_HIGH);
+		if (file_exists($this->config->dir->modules . DS . $controller . DS . 'controller.php')) {
+			$this->controller = $controller;
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Set the action being used for the current request
+	 *
+	 * @access	public
+	 * @param	string	$action					Name of the action to be called
+	 * @return	bool
+	 */
+	public function setAction($action) {
+		$action = filter_var($action, FILTER_SANITIZE_STRING, FILTER_FLAG_STRIP_LOW | FILTER_FLAG_STRIP_HIGH);
+		$this->action = $action;
+		return true;
 	}
 	
 	/**
@@ -91,34 +146,36 @@ class Request {
 	 * @return	void
 	 */
 	public function handleRequest() {
-		global $config;
-		
-		// Retrieve and render the page
-		$view = View::getInstance();
-
-		if (!empty($_REQUEST['module']) && file_exists($config->dir->modules . DS . $_REQUEST['module'] . DS . 'controller.php')) {
-			include_once $_REQUEST['module'] . DS . 'controller.php';
-			$classname = $_REQUEST['module'] . 'Controller';
+		if (!empty($this->controller) && file_exists($this->config->dir->modules . DS . $this->controller . DS . 'controller.php')) {
+			require_once $this->controller . DS . 'controller.php';
+			$classname = $this->controller . 'Controller';
 			$controller = new $classname();
 		} else {
-			if (file_exists($config->dir->modules . DS . 'index' . DS . 'controller.php')) {
-				include_once($config->dir->modules . DS . 'index' . DS . 'controller.php');
-				$controller = new indexController();
-			} else {
-				System::fatalError('No index controller present', __FUNCTION__, __CLASS__);
-			}
+			System::fatalError($this->controller . 'does not exist.  Request failed.', __FUNCTION__, __CLASS__);
 		}
 
-		if (!empty($_REQUEST['action']) && method_exists($controller, $_REQUEST['action'] . 'Action')) {
-			$method = $_REQUEST['action'] . 'Action';
-			$controller->$method();
-		} else if (method_exists($controller, 'indexAction')) {
-			$controller->indexAction();
+		$method = $this->action . 'Action';
+		if (method_exists($controller, $method)) {
+			call_user_func_array(array($controller, $method), $this->actionParams);
 		} else {
-			System::fatalError('No default action present for current controller', __FUNCTION__, __CLASS__);
+			System::fatalError($this->action . ' not defined within ' . $this->controller . ' controller.', __FUNCTION__, __CLASS__);
 		}
-		
-		$view->render();
+	}
+
+	/**
+	 * Forward the request to another contoller/action to be handled
+	 *
+	 * @access	public
+	 * @param	string	$controller				Name of the controller to forward the request to
+	 * @param	string	$action					Name of the action to forward the request to
+	 * @return	void
+	 */
+	public function forward($controller, $action = null) {
+		$this->setController($controller);
+		if (!is_null($action)) {
+			$this->setAction($action);
+		}
+		$this->handleRequest();
 	}
 	
 	/**
@@ -127,7 +184,7 @@ class Request {
 	 * @access	public
 	 * @return	bool
 	 */
-	public function isPostRequest() {
+	public function isPost() {
 		if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			return true;
 		}
@@ -140,7 +197,7 @@ class Request {
 	 * @access	public
 	 * @return	bool
 	 */
-	public function isAjaxRequest() {
+	public function isAjax() {
 		return $this->ajax === true ? true : false;
 	}
 		
@@ -152,7 +209,7 @@ class Request {
 	 * @param	string	$url				URL to redirect request to
 	 * @return	void
 	 */
-	static public function redirectRequest($url = null) {
+	static public function redirect($url = null) {
 		if (is_null($url)) {
 			$url = $_SERVER['HTTP_REFERER'];
 		}

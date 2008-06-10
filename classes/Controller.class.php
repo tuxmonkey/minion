@@ -13,16 +13,19 @@
  * @subpackage Classes
  */
 class Controller {
+	/** Instance of the request to make things a little easier */
+	protected $request = null;
+
 	/** Instance of the view to make things a little easier */
-	protected $_view = null;
+	protected $view = null;
 	
 	/** Copy of the config data to make it easier to get to */
-	protected $_config = null;
+	protected $config = null;
 	
 	/** Constructor */
 	public function __construct() {
-		$this->_request = Request::getInstance();
-		$this->_view = View::getInstance();
-		$this->_config = &$GLOBALS['config'];
+		$this->request = Request::getInstance();
+		$this->view = View::getInstance();
+		$this->config = $GLOBALS['config'];
 	}
 }
