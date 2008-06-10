@@ -24,12 +24,11 @@ class GenericModel extends Model {
 	 * @param	mixed	$ttl				Time to live for cached value, set to false to ignore cache
 	 * @return	void
 	 */
-	public function __construct($table, $key = null, $id = null, $dbconfig = false, $ttl = false) {
+	public function __construct($table, $key = null, $id = null) {
 		$this->_table = $table;
 		if (!is_null($key)) {
 			$this->_key = $key;
 		}
-		parent::__construct($id, $dbconfig, $ttl);
-		$this->_fetchClass = null;
+		parent::__construct($id);
 	}
 }

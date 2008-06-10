@@ -4,7 +4,9 @@ class indexController extends Controller {
 		$book = new Book;
 		$book = $book->findByPK(123456);
 		$book->publisher;
-		$book->authors;
+		foreach ($book->authors as $author) {
+			var_dump($author);
+		}
 		var_dump($book);
 	}
 }
