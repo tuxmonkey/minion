@@ -20,7 +20,7 @@ $config->dir->sessions = $config->dir->system . DS . 'sessions';
 $config->dir->vendors = $config->dir->system . DS . 'vendors';
 
 // URL Access Configuration
-$config->url->base = '/bookshelf/public';
+$config->url->base = '/minion/public';
 $config->url->reserved = array('ajax');
 $config->url->cleanurl = true;
 $config->url->separator = '=';
