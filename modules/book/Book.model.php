@@ -1,12 +1,11 @@
 <?php
 class Book extends Model {
-	static protected $_table = 'books';
-	
-	static protected $_metadata = array(
+	protected $_table = 'books';
+	protected $_key = 'isbn';	
+	protected $_metadata = array(
 		'isbn' => array(
 			'type' => 'text',
-			'length' => 16,
-			'primary' => true
+			'length' => 16
 		),
 		'title' => array(
 			'type' => 'text',
@@ -31,12 +30,8 @@ class Book extends Model {
 			'foreign' => array('authors' => 'id')
 		)
 	);
-	
-	static public function getWhere() {
-		return join(' AND ', self::$_where);
-	}
-	
-	static public function getParam() {
-		return join(',', self::$_params);
-	}
+	protected $_hasOne = array(
+		'publisher' => array('model' => 'Publisher', 'local' => 'publisher_id', 'foreign' => 'id'));
+	protected $_hasMany = array(
+		'authors' => array('model' => 'Author', 'local' => 'author_id', 'foreign' => 'id'));
 }

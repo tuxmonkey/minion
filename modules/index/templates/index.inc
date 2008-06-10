@@ -1,9 +1,5 @@
 <h1>.: <?php echo $this->_config->app->name ?></h1>
 
-<pre>
-<?php var_dump($where);?>
-</pre>
-
 <div id="navigation">
 	<form method="post" action="<?php echo $this->_config->url->base ?>">
 		<label>Title:</label>
@@ -13,7 +9,6 @@
 		<select name="publisher">
 			<option value=""> --- </option>
 			<?php foreach ($publishers as $publisher): ?>
-			<?php var_dump($publisher);?>
 			<option value="<?php echo $publisher ?>"<?php if ($_POST['publisher'] == $publisher): ?> selected="1"<?php endif; ?>><?php echo $publisher ?></option>
 			<?php endforeach; ?>
 		</select>

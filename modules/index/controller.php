@@ -1,6 +1,10 @@
 <?php
 class indexController extends Controller {
 	public function indexAction() {
-		$this->_view->where = Book::findByPK(123456);
+		$book = new Book;
+		$book = $book->findByPK(123456);
+		$book->publisher;
+		$book->authors;
+		var_dump($book);
 	}
 }

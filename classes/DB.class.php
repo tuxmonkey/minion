@@ -52,10 +52,6 @@ class DB {
 				$dsn .= 'dbname=' . $params->name;			
 			}
 		
-			print '<pre>';
-			var_dump($dsn, $params);
-			print '</pre>';
-		
 			try {
 				self::$instances->{$name} = new PDO($dsn, $params->user, $params->pass);
 				self::$instances->{$name}->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);

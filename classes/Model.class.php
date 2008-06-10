@@ -13,76 +13,31 @@
  **/
 class Model {
 	/** Database configuration to use if not using the default */
-	static protected $_dbconfig = 'default';
-	
-	/** Database connection being used by model */
-	static protected $_db = null;
+	protected $_dbconfig = 'default';
 	
 	/** Metadata for the model table */
-	static protected $_metadata = array();
+	protected $_metadata = array();
 	
 	/** Name of the table that is being presented by the model */
-	static protected $_table = null;
+	protected $_table = null;
 	
 	/** Primary Key for table model */
-	static protected $_key = null;
+	protected $_key = null;
+
+	/** Caching time to live */
+	protected $_ttl = false;
 	
 	/** Enable/Disable debug mode */
-	static public $_debug = false;
+	public $_debug = false;
 	
-	/** Comma seperator listed of fields to be retrieved by next select query */
-	static protected $_fields = null;
-	
-	/** Array of parameters that will be prepared in next query */
-	static protected $_params = array();
-	
-	/** Join statements for next select query */
-	static protected $_join = array();
-	
-	/** Where conditions to be used in the next select, update, or delete query */
-	static protected $_where = array();
-	
-	/** Group by statements to be used in the next select query */
-	static protected $_group = array();
-	
-	/** Order by clauses to be used in the next select query */
-	static protected $_order = array();
-	
-	/** Limit for number of rows the next select query should return */
-	static protected $_limit = null;
-	
-	/** Offset of rows to be used for next select query */
-	static protected $_offset = null;
-	
-	/** Index hint to be used for next query */
-	static protected $_indexHint = null;
-	
-	/** Optimization hint to be used for next query */
-	static protected $_optHint = null;
+	/** Array containing data to be used in next built query */
+	protected $_queryData = array();
 	
 	/** Whether or not to clear conditions, joins, etc on next query */
 	static protected $_clearAfter = true;
 
 	/** The number of rows affected by the last update or delete */
 	static protected $_affected = 0;
-	
-	/**
-	 * Model contructor.  When a instance of the class is loaded it will
-	 * attempt to find the primary key of the table we are dealing with.
-	 *
-	 * @static
-	 * @access	private
-	 * @param	string	$dbconfig	Database configuration to use
-	 * @return 	bool
-	 */
-	static private function _connect($dbconfig = false) {
-		global $config;
-
-		if (is_resource($this->_db)) {
-			return true;
-		}
-		return false;
-	}
 	
 	/**
 	 * Magic method for retrieval of rows by fields existing in the table.
@@ -95,378 +50,77 @@ class Model {
 	 * @param	array 	$params				Array of parameters that were passed
 	 * @return 	mixed
 	 */
-	static protected function __call($funcname, $params = array()) {
-		$fields = join('|', array_keys($this->_metadata->fields));
+	protected function __call($funcname, $params = array()) {
+		$fields = join('|', array_keys($this->_metadata));
 		if (preg_match('/^findBy(' . $fields . ')$/i', $funcname, $match)) {
 			$field = trim($match[1]);
 			$value = trim($params[0]);
 			$operator = $params[1] === true ? 'like' : '=';
-			self::addWhere("$field $operator ?", $value);
-			return $this->findWhere();
-		} else if (preg_match('/clear(.*?)$/i', $funcname, $match)) {
-			$option = trim(strtolower($match[1]));
-			if (empty($option)) {
-				$this->_fields = null;
-				$this->_join = array();
-				$this->_where = array();
-				$this->_group = array();
-				$this->_order = array();
-				$this->_limit = null;
-				$this->_offset = null;
-				$this->clearAfter(true);
-			} else {
-				switch ($option) {
-					case 'fields':
-					case 'limit':
-					case 'offset':
-						$this->{'_' . $option} = null;
-						break;
-					
-					case 'join':
-					case 'where':
-					case 'group':
-					case 'order':
-						$this->{'_' . $option} = array();
-						break;
-				}
-			}
+			$this->addWhere("$field $operator ?", $value);
+			return $this->select();
 		} else {
 			return null;
 		}
 	}
-	
-	/**
-	 * Gets an SQL WHERE condition, based on table metadata, for use in queries.
-	 * This is to account for composite keys.
-	 *
-	 * @access	protected
-	 * @param	mixed	$keys				Keys that will be matched against
-	 * @return	string
-	 */
-	protected function _keyCondition($keys = null) {
-		if (is_array($this->_key)) {
-			foreach ($this->_key as $key) {
-				if (!is_null($keys)) {
-					$this->where($key, '=', $keys[$key]);
-				} else {
-					$this->where($key, '=', $this->$key);
-				}
-			}
-		} else {
-			if (!is_null($keys)) {
-				$this->where($this->_key, '=', $keys);
-			} else {
-				$this->where($this->_key, '=', $this->{$this->_key});				
-			}
+
+	protected function __get($var) {
+		if (in_array($var, array_keys($this->_hasOne))) {
+			$class = $this->_hasOne[$var]['model'];
+			$obj = new $class;
+			$obj->addWhere($this->_hasOne[$var]['foreign'] . ' = ?', $this->{$this->_hasOne[$var]['local']});
+			$obj->limit(1);
+			$this->{$var} = $obj->select(true);
+			return $this->{$var};
+		} else if (in_array($var, array_keys($this->_hasMany))) {
+			$class = $this->_hasMany[$var]['model'];
+			$obj = new $class;
+			$obj->addWhere($this->_hasMany[$var]['foreign'] . ' = ?', $this->{$this->_hasMany[$var]['local']});
+			$this->{$var} = $obj->select();
+			return $this->{$var};
 		}
 	}
-		
+
 	/**
-	 * Gets the value(s) of the primary key as fetched for a particular record.
-	 * This is what we should be assigning to $_id.  This is also to account for
-	 * composite primary keys.  Returns an atomic value for tables with a,
-	 * single-column key and an associative array for composite keys.
+	 * Retrieve a row searching by the primary key of the table
 	 *
-	 * @access	protected
+	 * @access	public
+	 * @param	mixed	$value			Value to match the primary key against
 	 * @return	mixed
-	 */
-	public function _getKey() {
-		if (is_array($this->_key)) {
-			foreach ($this->_key as $k) {
-				$result[$k] = $this->$k;
-			}
-		} else {
-			$result = $this->{$this->_key};
-		}
-		return $result;
-	}
-	
-	static public function findByPK($value) {
+	 */	
+	public function findByPK($value) {
 		global $config;
-		
-		if ($config->cache->enabled === true && self::$_ttl !== false) {
-			$memkey = self::$_table . '-pk-' . $value;
+	
+		if ($config->cache->enabled === true && $this->_ttl !== false) {
+			if (func_num_args() > 1 && is_array($this->_key)) {
+				$memkey = $this->_table . '-pk-' . join('-', func_get_args());
+			} else {
+				$memkey = $this->_table . '-pk-' . $value;
+			}
 			$result = CacheManager::get($memkey);
 			if ($result !== false) {
 				return $result;
 			}
 		}
 		
-		self::addWhere(self::$_key . ' = ?', $value);
-		$row = self::execute();
+		if (func_num_args() > 1 && is_array($this->_key)) {
+			foreach ($this->_key as $key => $field) {
+				$this->addWhere($field . ' = ?', func_get_arg($key));
+			}
+		} else {
+			$this->addWhere($this->_key . ' = ?', $value);
+		}
+
+		$row = $this->limit(1)->select(true);
 		
 		if (is_object($row)) {
-			if ($config->cache->enabled === true && self::$_ttl !== false) {
-				CacheManager::set($memkey, $row, self::$_ttl);
+			if ($config->cache->enabled === true && $this->_ttl !== false) {
+				CacheManager::set($memkey, $row, $this->_ttl);
 			}
 			return $row;
 		}
 		return false;
 	}
-	
-	/**
-	 * Retrieve row from the table where the primary key matches the id given
-	 *
-	 * @access	public
-	 * @param	mixed	$id				Id to match against primary key.  If null, use the _id property.
-	 * @param	bool	$get_current	If set to true, will fetch the record into the current object, 
-	 *									otherwise returns a new object.
-	 * @param	int		$ttl			Time to live for cache record
-	 * @return 	object
-	 */
-	public function find($id = null, $get_current = false, $ttl = 0) {
-		global $config;
 		
-		if ($config->cache->enabled === true && $ttl !== false) {
-			$memkey = $this->_table . '-key-' . (is_array($id) ? join('-', $id) : $id);
-			$result = CacheManager::get($memkey);
-			if ($result !== false) {
-				if ($get_current === true) {
-					foreach ($this->_metadata->fields as $key => $item) {
-						$this->$key = $result->$key;
-					}
-					$this->_id = $this->_getKey();
-					return true;
-				} else {
-					return $result;
-				}
-			}			
-		}
-
-		$params = array();
-
-		$this->_keyCondition($id);
-		$where = $this->_getWhereClause($params);
-		$where = !empty($where) ? ' WHERE ' . $where : '';
-		
-		$sql = "SELECT * FROM " . $this->_table . $where;
-		
-		if ($this->_debug === true) {
-			System::debugMessage('Query: ' . $sql, __FUNCTION__, __CLASS__);
-		}
-		
-		try {
-			$pass_id = $id ? $id : $this->_id;
-			$stmt = $this->_db->prepare($sql);
-			foreach ($params as $key => $val) {
-				$stmt->bindValue(($key + 1), $val);
-			}
-			$stmt->execute();
-			
-			if (!is_null($this->_fetchClass)) {
-				if ($get_current) {
-					$stmt->setFetchMode(PDO::FETCH_INTO, $this);
-				} else {
-					$stmt->setFetchMode(PDO::FETCH_CLASS, $this->_fetchClass);
-				}
-			}
-			
-			$result = $stmt->fetch();
-			
-			if ($result) {
-				if ($get_current) {
-					$this->_id = $this->_getKey();
-				} else {
-					$result->_id = $result->_getKey();
-				}
-				if ($config->cache->enabled === true && $ttl !== false) {
-					CacheManager::set($memkey, $get_current === true ? $this : $result, $ttl);
-				}
-				return $result;
-			}
-		} catch (PDOException $e) {
-			System::logMessage($e->getMessage(), __FUNCTION__, __CLASS__);
-		}
-		return false;
-	}
-	
-	/**
-	 * Retrieve all rows from the table
-	 *
-	 * @access	public
-	 * @return 	array
-	 */
-	public function getAll() {
-		$fields = !is_null($this->_fields) ? $this->_fields : '*';
-		$this->_fields = null;
-		
-		if (count($this->_order) > 0) {
-			$order = '';
-			while ( count($this->_order) > 0 ) {
-				$item = array_shift($this->_order);
-				$order .= ' ' . $item['field'] . ' ' . $item['order'];
-			}
-		}
-		$order = !empty($order) ? ' ORDER BY ' . $order : '';
-		
-		$sql = "SELECT " . $fields . " FROM " . $this->_table . $order;
-		
-		if ($this->_debug === true) {
-			System::debugMessage('Query: ' . $sql, __FUNCTION__, __CLASS__);
-		}
-		
-		try {
-			$stmt = $this->_db->prepare($sql);
-			$stmt->execute();
-			if (!is_null($this->_fetchClass)) {
-				$stmt->setFetchMode(PDO::FETCH_CLASS, $this->_fetchClass);
-			} else {
-				$stmt->setFetchMode(PDO::FETCH_OBJ);
-			}
-			return $stmt->fetchAll();
-		} catch (PDOException $e) {
-			System::logMessage($e->getMessage(), __FUNCTION__, __CLASS__);
-			return array();
-		}
-	}
-	
-	/**
-	 * Form the conditions of a SQL query for use in SELECT, DELETE, and UPDATE queries
-	 *
-	 * @access	protected
-	 * @param	array	&$params				Array of values that will bound to the prepared query
-	 * @return	string
-	 */
-	protected function _getWhereClause(&$params) {
-		if ($this->_clearAfter === false) {
-			$saveWhere = $this->_where;
-		}
-		$where = '';
-		while ( count($this->_where) > 0 ) {
-			$cond = array_shift($this->_where);
-			if (!isset($cond['field'])) {
-				$wheregroup = '';
-				while ( count($cond) > 0 ) {
-					$item = array_shift($cond);
-					$wheregroup .= !empty($wheregroup) ? ' OR ' : '';
-					if (strpos($item['value'], '=') === 0) {
-						$wheregroup .= $item['field'] . ' ' . $item['operator'] . ' ' . substr($item['value'], 1);
-					} else {
-						$wheregroup .= $item['field'] . ' ' . $item['operator'] . ' ? ';
-						$params[] = $item['value'];
-					}
-				}
-				$where .= !empty($where) ? ' AND (' . $wheregroup . ') ' : ' (' . $wheregroup . ') ';
-				unset($wheregroup);
-			} else {
-				$where .= !empty($where) ? ' AND ' : '';
-				if (strpos($cond['value'], '=') === 0) {
-					$where .= $cond['field'] . ' ' . $cond['operator'] . ' ' . substr($cond['value'], 1);
-				} else {
-					$where .= $cond['field'] . ' ' . $cond['operator'] . ' ? ';
-					$params[] = $cond['value'];
-				}
-			}
-		}
-		if ($this->_clearAfter === false) {
-			$this->_where = $saveWhere;
-		}
-		return $where;
-	}
-	
-	/**
-	 * Retrieve all rows matching given criteria
-	 *
-	 * @access	public
-	 * @param	bool	$single			If a single row would be returned, just return the object instead
-	 * @return 	mixed
-	 */
-	public function findWhere($single = false) {
-		$fields = !is_null($this->_fields) ? $this->_fields : '*';
-		if ($this->_clearAfter !== false) {
-			$this->_fields = null;
-		}
-		
-		$joins = '';
-		if ($this->_clearAfter === false) {
-			$saveJoins = $this->_join;
-		}
-		while (count($this->_join) > 0) {
-			$join = array_shift($this->_join);
-			$joins .= ' ' . strtoupper($join['type']) . ' JOIN ' . $join['table'] 
-				. ' ON ' . $join['src'] . '=' . $join['dest'] . ' ' . $join['hint'] . ' ';
-		}
-		if ($this->_clearAfter === false) {
-			$this->_join = $saveJoins;
-		}
-		
-		$params = array();
-		$where = $this->_getWhereClause($params);
-		$where = !empty($where) ? ' WHERE ' . $where : '';
-		
-		if (count($this->_group) > 0) {
-			$group = join(',', $this->_group);
-			if ($this->_clearAfter !== false) {
-				$this->_group = array();
-			}
-		}
-		$group = !empty($group) ? ' GROUP BY ' . $group : '';
-		
-		if (count($this->_order) > 0) {
-			if ($this->_clearAfter === false) {
-				$saveOrder = $this->_order;
-			}
-			$order = '';
-			while ( count($this->_order) > 0 ) {
-				$item = array_shift($this->_order);
-				$order .= !empty($order) ? ', ' : '';
-				$order .= $item['field'] . ' ' . $item['order'];
-			}
-			if ($this->_clearAfter === false) {
-				$this->_order = $saveOrder;
-			}
-		}
-		$order = !empty($order) ? ' ORDER BY ' . $order : '';
-		
-		$limit = is_numeric($this->_limit) ? ' LIMIT ' . $this->_limit : '';
-		if ($this->_clearAfter !== false) {
-			$this->_limit = null;
-		}
-		
-		$offset = is_numeric($this->_offset) ? ' OFFSET ' . $this->_offset : '';
-		if ($this->_clearAfter !== false) {
-			$this->_offset = null;		
-		}
-		
-		$sql = "SELECT " . $this->_optHint . ' ' . $fields . " FROM " 
-			. $this->_table . ' ' . $this->_indexHint 
-			. $joins . $where . $group . $order . $limit . $offset;
-		
-		if ($this->_debug === true) {
-			System::debugMessage('Query: ' . $sql, __FUNCTION__, __CLASS__);
-		}
-
-		try {
-			$stmt = $this->_db->prepare($sql);
-			foreach ($params as $key => $param) {
-				$stmt->bindValue(($key + 1), $param);
-			}
-			if ($stmt->execute()) {
-				if ($stmt->columnCount() == 1) {
-					while (($col = $stmt->fetchColumn()) !== false) {
-						$rows[] = $col;
-					}
-				} else {
-					if (!is_null($this->_fetchClass)) {
-						$stmt->setFetchMode(PDO::FETCH_CLASS, $this->_fetchClass);
-					} else {
-						$stmt->setFetchMode(PDO::FETCH_OBJ);
-					}
-					$rows = $stmt->fetchAll();
-				}
-				if ($single === true) {
-					if (@count($rows) == 1) {
-						return $rows[0];
-					}
-				}
-				return $rows;
-			}
-		} catch (PDOException $e) {
-			System::logMessage($e->getMessage(), __FUNCTION__, __CLASS__);
-			return array();
-		}
-	}
-	
 	/**
 	 * Retrieve a set of rows based on the "page" they would be on.
 	 *
@@ -680,15 +334,15 @@ class Model {
 	/**
 	 * Set the list of fields to be retrieved in the next select query
 	 *
-	 * @static
 	 * @access	public
 	 * @param	string	$fields			Fields to be retrieved
-	 * @return 	void
+	 * @return 	object
 	 */
-	static public function fields($fields) {
+	public function fields($fields) {
 		if (!empty($fields)) {
-			self::$_fields = $fields;
+			$this->_queryData['fields'] = $fields;
 		}
+		return $this;
 	}
 	
 	/**
@@ -702,25 +356,24 @@ class Model {
 	 * by simply adding AND/OR between conditions, Example:
 	 *		Model::addWhere('first_name = ? AND last_name = ?', 'Bob', 'Smith');
 	 *
-	 * @static
 	 * @access	public
 	 * @param	array 	$conditions		Condition(s) to be added to the stack
-	 * @return 	void
+	 * @return 	object
 	 */
-	static public function addWhere($condition) {
-		self::$_where[] = $condition;
+	public function addWhere($condition) {
+		$this->_queryData['where'][] = $condition;
 		$numargs = func_num_args();
 		if ($numargs > 1) {
 			for ($x = 1; $x < $numargs; $x++) {
 				$param = func_get_arg($x);
 				if (is_array($param)) {
-					self::$_params[] = join(',', $param);
+					$this->_queryData['whereParams'][] = join(',', $params);
 				} else {
-					self::$_params[] = $param;
+					$this->_queryData['whereParams'][] = $param;
 				}
 			}
 		}
-		return self;
+		return $this;
 	}
 	
 	/**
@@ -730,19 +383,20 @@ class Model {
 	 * @param	mixed	$field				Field(s) to be added to the group stack.
 	 * @return 	object
 	 */
-	static public function groupBy($field) {
+	public function groupBy($field) {
 		if (is_array($field)) {
 			foreach ($field as $item) {
-				self::groupBy($item);
+				$this->groupBy($item);
 			}
 		} else if (strpos($field, ',') !== false) {
 			$fields = explode(',', $field);
 			foreach ($fields as $field) {
-				self::groupBy($field);
+				$this->groupBy($field);
 			}
 		} else {
-			self::$_group[] = trim($field);
+			$this->_queryData['groupBy'][] = trim($field);
 		}
+		return $this;
 	}
 	
 	/**
@@ -752,31 +406,12 @@ class Model {
 	 * a multidimensional array.
 	 *
 	 * @access	public
-	 * @param	array 	$order		Array of items for the order by clause
+	 * @param	string 	$order		Field(s) to order on
 	 * @return 	object
 	 */
 	public function orderby($order) {
-		if (is_string($order)) {
-			$order = array();
-			$order[0] = func_get_arg(0);
-			if (func_num_args() == 2) {
-				$order[1] = func_get_arg(1);
-			} else {
-				$order[1] = 'asc';
-			}
-		} elseif (!is_array($order)) {
-			System::logMessage('Conditions not an array', __FUNCTION__, __CLASS__);
-			return $this;
-		}
-		
-		if (is_array($order[0])) {
-			foreach ( $order as $item ) {
-				$data = array('field' => $item[0], 'order' => $item[1]);
-				$this->_order[] = $data;
-			}
-		} else {
-			$data = array('field' => $order[0], 'order' => $order[1]);
-			$this->_order[] = $data;
+		if (!empty($order)) {
+			$this->_queryData['orderBy'][] = trim($order);
 		}
 		return $this;
 	}
@@ -789,7 +424,9 @@ class Model {
 	 * @return 	object
 	 */
 	public function limit($limit) {
-		$this->_limit = is_numeric($limit) ? $limit : null;
+		if (is_numeric($limit)) {
+			$this->_queryData['limit'] = $limit;
+		}
 		return $this;
 	}
 	
@@ -801,7 +438,9 @@ class Model {
 	 * @return 	object
 	 */
 	public function offset($offset) {
-		$this->_offset = is_numeric($offset) ? $offset : null;
+		if (is_numeric($offset)) {
+			$this->_queryData['offset'] = $offset;
+		}
 		return $this;
 	}
 	
@@ -873,24 +512,105 @@ class Model {
 		return $this;
 	}
 	
-	static public function execute() {
-		$db = DB::getInstance(self::$_dbconfig);
-		var_dump($db);
-		if (!($db instanceof PDO)) {
-			return false;
+	protected function buildQuery($type = 'SELECT') {
+		switch (strtoupper($type)) {
+			case 'SELECT':
+				$sql  = "SELECT ";
+				$sql .= isset($this->_queryData['fields']) ? $this->_queryData['fields'] : '*';
+				$sql .= " FROM " . $this->_table;
+				break;
+
+			case 'DELETE':
+				$sql = "DELETE FROM " . $this->_table;
+				break;
 		}
 
-		var_dump(self::$_fields);
-
-		$sql = "SELECT " . self::$_fields . " FROM " . self::$_table;
-		if (count(self::$_where) > 0) {
-			$conditions = join(' AND ', self::$_where);
+		if (isset($this->_queryData['joins'])) {
+			foreach ($this->_queryData['joins'] as $join) {
+				$sql .= ' ' . $join['type'] . ' JOIN ' . $join['table'] . ' ' . $join['local'] . ' = ' . $join['foreign'];
+			}
+		}
+	
+		if (isset($this->_queryData['where'])) {
+			$conditions = join(' AND ', $this->_queryData['where']);
 			if (!empty($conditions)) {
 				$sql .= " WHERE " . $conditions;
 			}
 		}
-		print '<pre>';
+
+		if (isset($this->_queryData['groupBy'])) {
+			$sql .= " GROUP BY " . join(',', $this->_queryData['groupBy']);
+		}
+
+		if (isset($this->_queryData['having'])) {
+			$conditions = join(' AND ', $this->_queryData['having']);
+			if (!empty($conditions)) {
+				$sql .= " HAVING " . $conditions;
+			}
+		}
+
+		if (isset($this->_queryData['orderBy'])) {
+			$sql .= " ORDER BY " . join(',', $this->_queryData['orderBy']);
+		}
+
+		if (isset($this->_queryData['limit'])) {
+			$sql .= " LIMIT " . $this->_queryData['limit'];
+		}
+
+		if (isset($this->_queryData['offset'])) {
+			$sql .= " OFFSET " . $this->_queryData['offset'];
+		}
+
+		return $sql;
+	}
+
+	/**
+	 * Return the result of the build query process to be reviewed
+	 *
+	 * @access	public
+	 * @param	string	$type			Type of query that is being built (SELECT, DELETE, INSERT, UPDATE)
+	 * @return	string
+	 */
+	public function getQuery($type = 'SELECT') {
+		return $this->buildQuery($type);
+	}
+
+	/**
+	 * Give us a clean slate for the prepared query data
+	 *
+	 * @access	public
+	 * @return	void
+	 */
+	public function clearQuery() {
+		$this->_queryData = array();
+	}
+
+	public function select($single = false) {
+		$db = DB::getInstance($this->_dbconfig);
+		if (!($db instanceof PDO)) {
+			return false;
+		}
+
+		$sql = $this->buildQuery('SELECT');
 		var_dump($sql);
-		print '</pre>';
+		try {
+			$stmt = $db->prepare($sql);
+			$params = is_array($this->_queryData['whereParams'])
+				? $this->_queryData['whereParams'] : array();
+			$params = is_array($this->_queryData['havingParams'])
+				? array_merge($params, $this->_queryData['havingParams']) : $params;
+			$stmt->setFetchMode(PDO::FETCH_CLASS, get_class($this));
+			$stmt->execute($params);
+			$result = $stmt->fetchAll();
+			if (count($result) == 1 && $single === true) {
+				$result = $result[0];
+			}
+		} catch (PDOException $e) {
+			System::logMessage($e->getMessage(), __FUNCTION__, __CLASS__);
+			return false;
+		}
+
+		$this->clearQuery();
+		return $result;
 	}
 }
