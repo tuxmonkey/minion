@@ -15,7 +15,7 @@ class Request {
 	/**
 	 * Instance of the Request class
 	 */
-	static $_instance = null;
+	static protected $instance = null;
 	
 	/**
  	 * Object containing all get, post, and cookie variables
@@ -58,9 +58,15 @@ class Request {
 			$this->params->cookie->$key = $val;
 		}
 
-		if ($this->config->url->cleanurl == true) {
-			$this->parseURI();
+		if (isset($this->config->app->defaultController)) {
+			$this->setController($this->config->app->defaultController);
 		}
+
+		if (isset($this->config->app->defaultAction)) {
+			$this->setAction($this->config->app->defaultAction);
+		}
+
+		$this->routeRequest();
 	}
 	
 	/**
@@ -69,42 +75,90 @@ class Request {
 	 * @return 	object
 	 */
 	public function getInstance() {
-		if (!(self::$_instance instanceof Request)) {
-			self::$_instance = new Request();
+		if (!(self::$instance instanceof Request)) {
+			self::$instance = new Request();
 		}
-		return self::$_instance;
+		return self::$instance;
 	}
-	
+
 	/**
 	 * Parse URI for useful data
 	 *
 	 * @access	public
 	 * @return	void
 	 */
-	public function parseURI() {
+	public function routeRequest() {
+		// Clear the base URL path from the URI before doing any parsing
 		$uri = str_replace($this->config->url->base, '', $_SERVER['REQUEST_URI']);
-        $params = explode('/', trim($uri));
-		
-		foreach ($params as $param) {
-			if (empty($param)) {
-				continue;
-			}
 
-			if (strpos($param, $this->config->url->separator) === false) {
-				if (!@in_array($param, $this->config->url->reserved)) {
-					if (!isset($this->controller) && file_exists($this->config->dir->modules . DS . $param)) {
-						$this->setController($param);
-					} else if (!isset($this->action) && isset($this->controller)) {
-						$this->setAction($param);
+		// Check to see if index.php is in the url, if so, scrap it	
+		if (strpos($uri, '/index.php') == 0) {
+			$uri = str_replace('/index.php', '', $uri);
+		}
+
+		// Cleanup any repeating slashes
+		$uri = preg_replace('#/+#', '/', $uri);
+
+		// Make sure our uri starts with a /
+		if ($uri[0] != '/') {
+			$uri = '/' . $uri;
+		}
+
+		// Pull off the query string if it exists
+		if (preg_match('#\?(.*?)$#', $uri, $matches)) {
+			parse_str($matches[1], $params);
+			$this->actionParams = array_merge($this->actionParams, $params);
+			$uri = preg_replace('#\?.*?$#', '', $uri);
+		}
+
+		$routes = is_array($this->config->routes) ? $this->config->routes : array();
+		foreach ($routes as $name => $route) {
+			if (preg_match('#^' . $route['regex'] . '(?<params>/.*?)?$#i', $uri, $matches)) {
+				preg_match_all('#\(.*?<(.*?)>.*?\)#', $route['regex'], $keys);
+				foreach ($keys[1] as $key) {
+					if ($key == 'controller') {
+						$this->setController($matches[$key]);
+					} else if ($key == 'action') {
+						$this->setAction($matches[$key]);
 					} else {
-						$this->actionParams[] = $param;
+						$this->actionParams[$key] = $matches[$key];
 					}
-				} else {
-					$this->{$param} = true;
 				}
-			} else {
-				$pieces = explode($this->config->url->separator, trim($param));
-				$this->params->get->{$pieces[0]} = $pieces[1];
+
+				if (!empty($matches['params'])) {
+					if ($route['parseParams'] !== false) {
+						$params = explode('/', $matches['params']);
+						
+						// Toss the first param as it should be empty
+						array_shift($params);
+
+						foreach ($params as $param) {
+							if (strpos($param, $this->config->url->separator) !== false) {
+								$parts = explode($this->config->url->separator, $param);
+								if (in_array($parts[0], $this->config->url->reserved)) {
+									$this->{$parts[0]} = $parts[1];
+								} else {
+									$this->actionParams[trim($parts[0])] = trim($parts[1]);
+								}
+							} else {
+								$this->actionParams[] = $param;
+							}
+						}
+					} else {
+						$this->actionParams[] = $matches['params'];
+					}
+				}
+
+				if (isset($route['controller'])) {
+					$this->setController($route['controller']);
+				}
+
+				if (isset($route['action'])) {
+					$this->setAction($route['action']);
+				}
+
+				// If we found a route, stop now
+				break;
 			}
 		}
 	}

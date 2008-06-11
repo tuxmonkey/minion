@@ -15,31 +15,31 @@
  */
 class View {
 	/** View instance for the current request (only 1 instance allowed) */
-	static $_instance = null;
+	static $instance = null;
 	
 	/** Variables to be expanded and used within templates */
-	protected $_variables = array();
+	protected $variables = array();
 	
 	/** Templates to be render for the current request */
-	protected $_templates = array();
+	protected $templates = array();
 	
 	/** Layout to be used for displaying the page */
-	public $_layout = null;
+	public $layout = null;
 	
 	/** Placeholder for the global configuration */
-	protected $_config = null;
+	protected $config = null;
 	
 	/** Request Object */
-	protected $_request = null;
+	protected $request = null;
 
 	/**
 	 * Constructor
 	 */
 	public function __construct() {
-		$this->_request = Request::getInstance();
-		$this->_config = &$GLOBALS['config'];
-		$layout = $this->_request->isAjax() ? 'ajax.inc' : 'default.inc';
-		$this->_layout = realpath(dirname(__FILE__) . DS . '..'
+		$this->request = Request::getInstance();
+		$this->config = &$GLOBALS['config'];
+		$layout = $this->request->isAjax() ? 'ajax.inc' : 'default.inc';
+		$this->layout = realpath(dirname(__FILE__) . DS . '..'
 			. DS . 'layouts' . DS . $layout);
 	}
 	
@@ -51,10 +51,10 @@ class View {
 	 * @return	object
 	 */
 	public function getInstance() {
-		if (!(self::$_instance instanceof View)) {
-			self::$_instance = new View();
+		if (!(self::$instance instanceof View)) {
+			self::$instance = new View();
 		}
-		return self::$_instance;
+		return self::$instance;
 	}
 	
 	/**
@@ -66,7 +66,7 @@ class View {
 	 * @return	void
 	 */
 	public function __set($name, $value) {
-		$this->_variables[$name] = $value;
+		$this->variables[$name] = $value;
 	}
 	
 	/**
@@ -79,14 +79,14 @@ class View {
 	 */
 	public function addTemplate($template, $module = null) {
 		if (!is_null($module)) {
-			$location = $this->_config->dir->modules . DS . $module 
+			$location = $this->config->dir->modules . DS . $module 
 				. DS . 'templates' . DS . $template . '.inc';
 		} else {
-			$location = $this->_config->dir->templates . DS . $template . '.inc';
+			$location = $this->config->dir->templates . DS . $template . '.inc';
 		}
 
 		if (file_exists($location)) {
-			$this->_templates[] = $location;
+			$this->templates[] = $location;
 			return true;
 		}
 		return false;
@@ -99,7 +99,7 @@ class View {
 	 * @return	void
 	 */
 	public function clearTemplates() {
-		$this->_templates = array();
+		$this->templates = array();
 	}
 	
 	/**
@@ -113,10 +113,10 @@ class View {
 	 */
 	public function hook($hookname, $variables = array()) {
 		# Extract all assigned variables
-		extract($this->_variables);
+		extract($this->variables);
 		extract($variables);
 		
-		$files = glob($this->_config->dir->modules . DS . '*' . DS
+		$files = glob($this->config->dir->modules . DS . '*' . DS
 			. 'hooks' . DS . 'views' . DS . '*' . $hookname . '.inc');
 		if (is_array($files)) {
 			foreach ($files as $file) {
@@ -133,23 +133,23 @@ class View {
 	 */
 	public function render() {
 		# Extract all assigned variables
-		extract($this->_variables);
+		extract($this->variables);
 
-		if (count($this->_templates) == 0) {
-			$this->addTemplate($this->_request->controller, $this->_request->action);
+		if (count($this->templates) == 0) {
+			$this->addTemplate($this->request->controller, $this->request->action);
 		}
 	
-		if (!empty($this->_layout)) {
+		if (!empty($this->layout)) {
 			ob_start();
-			foreach ($this->_templates as $template) {
+			foreach ($this->templates as $template) {
 				include $template;
 			}
 			$content = ob_get_contents();
 			ob_end_clean();
 
-			include_once $this->_layout;			
+			include_once $this->layout;			
 		} else {
-			foreach ($this->_templates as $template) {
+			foreach ($this->templates as $template) {
 				include $template;
 			}			
 		}

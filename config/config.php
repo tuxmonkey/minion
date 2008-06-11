@@ -8,6 +8,8 @@ $config = new stdClass();
 // General Application Configuration
 $config->app->name = 'Bookshelf';
 $config->app->version = '0.1';
+$config->app->defaultController = 'default';
+$config->app->defaultAction = 'default';
 
 // Directory Configuration
 $config->dir->system = realpath(dirname(__FILE__) . DS . '..');
@@ -15,15 +17,16 @@ $config->dir->public = $config->dir->system . DS . 'public';
 $config->dir->bin = $config->dir->system . DS . 'bin';
 $config->dir->templates = $config->dir->system . DS . 'templates';
 $config->dir->modules = $config->dir->system . DS . 'modules';
-$config->dir->classes = $config->dir->system . DS . 'classes';
+$config->dir->helpers = $config->dir->system . DS . 'helpers';
+$config->dir->lib = $config->dir->system . DS . 'lib';
 $config->dir->sessions = $config->dir->system . DS . 'sessions';
 $config->dir->vendors = $config->dir->system . DS . 'vendors';
 
 // URL Access Configuration
 $config->url->base = '/minion/public';
 $config->url->reserved = array('ajax');
-$config->url->cleanurl = true;
-$config->url->separator = '=';
+$config->url->cleanurl = false;
+$config->url->separator = ':';
 
 // Database Configuration
 $config->db['default']->type = 'mysql';
@@ -49,3 +52,4 @@ $config->cache->servers = array();
 $config->paginate->limit = 20;
 $config->paginate->template = 'paginate.inc';
 
+include_once dirname(__FILE__) . DS . 'routes.php';

@@ -1,12 +1,12 @@
 <?php
 class bookController extends Controller {
-	public function indexAction() {
-		$query = new Doctrine_Query();
-		$this->_view->books = $query->from('Book b')->orderby('b.isbn')->execute();
+	public function defaultAction() {
+		$book = new Book;
+		$this->view->books = $book->findAll();
 	}
 	
 	public function searchAction() {
-		if ($this->_request->isPostRequest()) {
+		if ($this->request->isPost()) {
 			$wsdl_url = 'http://webservices.amazon.com/AWSECommerceService/AWSECommerceService.wsdl?';
 			$client = new SoapClient($wsdl_url);
 
@@ -17,14 +17,14 @@ class bookController extends Controller {
 			$params->Request->ResponseGroup = 'Large';
 
 			$item = $client->ItemSearch($params);
-			$this->_view->books = $item->Items->Item;
+			$this->view->books = $item->Items->Item;
 		}
 	}
 	
 	public function addAction() {
-		if ($this->_request->isPostRequest()) {
-			$book = new GenericModel('books', 'isbn');
-			foreach ($_POST as $key => $value) {
+		if ($this->request->isPost()) {
+			$book = new Book;
+			foreach ($this->request->post as $key => $value) {
 				$book->$key = $value;
 			}
 			if ($book->save()) {
@@ -33,6 +33,6 @@ class bookController extends Controller {
 				Alert::addAlert('Failed to add book to bookshelf');
 			}
 		}
-		Request::redirectRequest($this->_config->url->base);
+		$this->request->redirect($this->config->url->base);
 	}
 }

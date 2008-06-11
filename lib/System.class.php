@@ -5,7 +5,6 @@
  * @package    Minion
  * @subpackage Classes
  */
-
 /**
  * @package    Minion
  * @subpackage Classes
@@ -90,44 +89,18 @@ class System {
 	 * @return 	void
 	 */
 	static public function hook($hookname, $variables = array()) {
+		global $config;
+
 		# Extract variables into scope
 		if (is_array($variables)) {
 			extract($variables, EXTR_REFS);			
 		}
 		
-		$files = glob($_config->dir->modules . DS . '*' . DS . 'hooks'
+		$files = glob($config->dir->modules . DS . '*' . DS . 'hooks'
 			. DS . 'system' . DS . '*' . $hookname . '.php');
 		if (is_array($files)) {
 			foreach ($files as $file) {
 				include $file;
-			}
-		}
-	}
-	
-	/**
-	 * Class auto loader
-	 *
-	 * @static
-	 * @access	public
-	 * @param	string	$class 				Name of class to be loaded
-	 * @return 	void
-	 */
-	static public function autoload($class) {
-		global $config;
-
-		if (file_exists($config->dir->classes . DS . $class . '.class.php')) {
-			include_once $config->dir->classes . DS . $class . '.class.php';
-		}
-		$files = glob($config->dir->modules . DS . '*' . DS . $class . '.model.php');
-		if (is_array($files)) {
-			foreach ($files as $file) {
-				include_once $file;
-			}
-		}
-		$files = glob($config->dir->modules . DS . '*' . DS . $class . '.class.php');
-		if (is_array($files)) {
-			foreach ($files as $file) {
-				include_once $file;
 			}
 		}
 	}

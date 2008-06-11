@@ -1,7 +1,7 @@
 <h1>.: Books</h1>
 
 <div>
-	<form method="post" action="<?php echo $this->_config->url->base ?>book/search/">
+	<form method="post" action="<?php echo Link::linkTo('book', 'search') ?>">
 		<input type="text" size="32" name="search" />
 		<input type="submit" value="Search" />
 	</form>
