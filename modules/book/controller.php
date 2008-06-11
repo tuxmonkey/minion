@@ -1,8 +1,11 @@
 <?php
+Loader::loadModel('Book');
+Loader::loadHelper('Link');
+
 class bookController extends Controller {
 	public function defaultAction() {
 		$book = new Book;
-		$this->view->books = $book->findAll();
+		$this->view->books = $book->findByPage(1);
 	}
 	
 	public function searchAction() {
@@ -24,15 +27,29 @@ class bookController extends Controller {
 	public function addAction() {
 		if ($this->request->isPost()) {
 			$book = new Book;
-			foreach ($this->request->post as $key => $value) {
+
+			if (!empty($this->params->post['publisher'])) {
+				$publisher = new Publisher;
+				$publisher->name = $this->params->post['publisher'];
+				$book->publisher_id = $publisher->save();
+			}
+
+			if (!empty($this->params->post['author'])) {
+				$author = new Author;
+				$author->name = $this->params->post['author'];
+				$book->author_id = $author->save();
+			}
+			
+			foreach ($this->params->post as $key => $value) {
 				$book->$key = $value;
 			}
+		
 			if ($book->save()) {
 				Alert::addAlert('New book added to bookshelf');
 			} else {
 				Alert::addAlert('Failed to add book to bookshelf');
 			}
 		}
-		$this->request->redirect($this->config->url->base);
+		$this->request->redirect(Link::linkTo('book'));
 	}
 }

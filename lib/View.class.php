@@ -15,7 +15,7 @@
  */
 class View {
 	/** View instance for the current request (only 1 instance allowed) */
-	static $instance = null;
+	static protected $instance = null;
 	
 	/** Variables to be expanded and used within templates */
 	protected $variables = array();
@@ -24,7 +24,7 @@ class View {
 	protected $templates = array();
 	
 	/** Layout to be used for displaying the page */
-	public $layout = null;
+	protected $layout = null;
 	
 	/** Placeholder for the global configuration */
 	protected $config = null;
@@ -38,9 +38,8 @@ class View {
 	public function __construct() {
 		$this->request = Request::getInstance();
 		$this->config = &$GLOBALS['config'];
-		$layout = $this->request->isAjax() ? 'ajax.inc' : 'default.inc';
-		$this->layout = realpath(dirname(__FILE__) . DS . '..'
-			. DS . 'layouts' . DS . $layout);
+		$layout = $this->request->isAjax() ? 'ajax' : 'default';
+		$this->setLayout($layout);
 	}
 	
 	/**
@@ -67,6 +66,21 @@ class View {
 	 */
 	public function __set($name, $value) {
 		$this->variables[$name] = $value;
+	}
+
+	/**
+	 * Set the layout to be used for the current request
+	 *
+	 * @access	public
+	 * @param	string	$layout			Name of the layout to use
+	 * @return	bool
+	 */
+	public function setLayout($layout) {
+		if (file_exists($this->config->dir->layouts . DS . $layout . '.inc')) {
+			$this->layout = $this->config->dir->layouts . DS . $layout . '.inc';
+			return true;
+		}
+		return false;
 	}
 	
 	/**
@@ -136,7 +150,7 @@ class View {
 		extract($this->variables);
 
 		if (count($this->templates) == 0) {
-			$this->addTemplate($this->request->controller, $this->request->action);
+			$this->addTemplate($this->request->action, $this->request->controller);
 		}
 	
 		if (!empty($this->layout)) {

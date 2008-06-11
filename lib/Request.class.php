@@ -33,11 +33,6 @@ class Request {
 	public $action = 'default';
 
 	/**
-	 * Parameters that will be passed to the controller action
-	 */
-	public $actionParams = array();
-
-	/**
 	 * Request Constructor
 	 *
 	 * @return 	object
@@ -47,15 +42,15 @@ class Request {
 		
 		$this->params = new stdClass;
 		foreach ($_GET as $key => $val) {
-			$this->params->get->$key = $val;
+			$this->params->get[$key] = $val;
 		}
 
 		foreach ($_POST as $key => $val) {
-			$this->params->post->$key = $val;
+			$this->params->post[$key] = $val;
 		}
 
 		foreach ($_COOKIE as $key => $val) {
-			$this->params->cookie->$key = $val;
+			$this->params->cookie[$key] = $val;
 		}
 
 		if (isset($this->config->app->defaultController)) {
@@ -107,7 +102,9 @@ class Request {
 		// Pull off the query string if it exists
 		if (preg_match('#\?(.*?)$#', $uri, $matches)) {
 			parse_str($matches[1], $params);
-			$this->actionParams = array_merge($this->actionParams, $params);
+			foreach ($params as $key => $val) {
+				$queryParams[$key] = $val;
+			}
 			$uri = preg_replace('#\?.*?$#', '', $uri);
 		}
 
@@ -121,7 +118,7 @@ class Request {
 					} else if ($key == 'action') {
 						$this->setAction($matches[$key]);
 					} else {
-						$this->actionParams[$key] = $matches[$key];
+						$this->params->get[$key] = $matches[$key];
 					}
 				}
 
@@ -138,14 +135,14 @@ class Request {
 								if (in_array($parts[0], $this->config->url->reserved)) {
 									$this->{$parts[0]} = $parts[1];
 								} else {
-									$this->actionParams[trim($parts[0])] = trim($parts[1]);
+									$this->params->get[$parts[0]] = $parts[1];
 								}
 							} else {
-								$this->actionParams[] = $param;
+								$this->params->get[] = $param;
 							}
 						}
 					} else {
-						$this->actionParams[] = $matches['params'];
+						$this->params->get[] = $matches['params'];
 					}
 				}
 
@@ -210,7 +207,7 @@ class Request {
 
 		$method = $this->action . 'Action';
 		if (method_exists($controller, $method)) {
-			call_user_func_array(array($controller, $method), $this->actionParams);
+			$controller->$method($this->params->get);
 		} else {
 			System::fatalError($this->action . ' not defined within ' . $this->controller . ' controller.', __FUNCTION__, __CLASS__);
 		}

@@ -21,11 +21,15 @@ class Controller {
 	
 	/** Copy of the config data to make it easier to get to */
 	protected $config = null;
+
+	/** Paramaters passed in through the rest */
+	public $params = null;
 	
 	/** Constructor */
 	public function __construct() {
 		$this->request = Request::getInstance();
 		$this->view = View::getInstance();
 		$this->config = $GLOBALS['config'];
+		$this->params = $this->request->params;
 	}
 }

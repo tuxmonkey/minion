@@ -1,4 +1,4 @@
-<?php if ($this->_request->isPostRequest()):?>
+<?php if ($this->request->isPost()):?>
 <div>
 	<?php foreach ($books as $book):?>
 	<p> 
@@ -17,7 +17,7 @@
 </div>
 <?php endforeach;?>
 <?php else:?>
-<form method="post" action="<?php echo $this->_config->url->base ?>book/search/">
+<form method="post" action="<?php echo Link::linkTo('book', 'search') ?>">
 	<input type="text" size="32" name="search" />
 	<input type="submit" value="Find" />
 </form>

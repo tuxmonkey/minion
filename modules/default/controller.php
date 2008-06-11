@@ -1,8 +1,8 @@
 <?php
-
-include_once 'Link.helper.php';
+Loader::loadHelper('Link');
 
 class defaultController extends Controller {
 	public function defaultAction() {
+		$this->request->forward('book', 'search');
 	}
 }

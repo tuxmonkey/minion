@@ -74,8 +74,8 @@ class Loader {
 				self::loadHelper($item);
 			}
 		} else {
-			if (file_exists($config->dir->helpers . DS . $model . '.php')) {
-				return include_once $config->dir->helpers . DS . $model . '.php';
+			if (file_exists($config->dir->helpers . DS . $helper . '.php')) {
+				return include_once $config->dir->helpers . DS . $helper . '.php';
 			}
 		}
 		return false;
