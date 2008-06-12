@@ -4,6 +4,8 @@ Loader::loadHelper('Link');
 
 class bookController extends Controller {
 	public function defaultAction() {
+		Loader::loadHelper('Table');
+
 		$book = new Book;
 		$this->view->books = $book->findByPage(1);
 	}
@@ -26,28 +28,39 @@ class bookController extends Controller {
 	
 	public function addAction() {
 		if ($this->request->isPost()) {
-			$book = new Book;
+			Loader::loadModel('Publisher');
+			Loader::loadModel('Author');
 
-			if (!empty($this->params->post['publisher'])) {
+			$book = new Book($this->params->post['isbn']);
+			if (empty($book->title)) {
+				$book->isbn = $this->params->post['isbn'];
+				$book->title = $this->params->post['title'];
+				$book->released = $this->params->post['released'];
+				$book->pages = $this->params->post['pages'];
+
 				$publisher = new Publisher;
-				$publisher->name = $this->params->post['publisher'];
-				$book->publisher_id = $publisher->save();
-			}
+				$publisher->import()->findByName($this->params->post['publisher']);
+				if (empty($publisher->name)) {
+					$publisher->name = $this->params->post['publisher'];
+					$publisher->save('insert');
+				}
+				$book->publisher_id = $publisher->id;
 
-			if (!empty($this->params->post['author'])) {
 				$author = new Author;
-				$author->name = $this->params->post['author'];
-				$book->author_id = $author->save();
-			}
-			
-			foreach ($this->params->post as $key => $value) {
-				$book->$key = $value;
-			}
-		
-			if ($book->save()) {
-				Alert::addAlert('New book added to bookshelf');
+				$author->import()->findByName($this->params->post['author']);
+				if (empty($author->name)) {
+					$author->name = $this->params->post['author'];
+					$author->save('insert');
+				}
+				$book->author_id = $author->id;
+
+				if ($book->save('insert')) {
+					Alert::addAlert('New book added to bookshelf');
+				} else {
+					Alert::addAlert('Failed to add book to bookshelf');
+				}
 			} else {
-				Alert::addAlert('Failed to add book to bookshelf');
+				Alert::addAlert('That book is already on the shelf.');
 			}
 		}
 		$this->request->redirect(Link::linkTo('book'));

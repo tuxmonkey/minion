@@ -1,25 +1,17 @@
 <?php
 class Link {
-	static public function linkTo($controller, $action = null, $params = array()) {
+	static public function linkTo() {
 		global $config;
 
 		$link = $config->url->base;
 		$link .= $config->url->cleanurl ? '' : '/index.php';
-		$link .= '/' . $controller;
-
-		if (!is_null($action)) {
-			$link .= '/' . $action;
+		if (func_num_args() > 0) {
+			$args = func_get_args();
+			$link .= '/' . join('/', $args);
 		}
 
-		if (count($params) > 0) {
-			foreach ($params as $key => $value) {
-				if (is_numeric($key)) {
-					$link .= '/' . $value;
-				} else {
-					$link .= '/' . $key . $config->url->separator . $value;
-				}
-			}
-		}
+		// Cleanup any double slashes we may have put in
+		$link = preg_replace('#/+#', '/', $link);
 
 		return $link;
 	}

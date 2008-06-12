@@ -2,7 +2,7 @@
 class Publisher extends Model {
 	protected $_table = 'publishers';
 	protected $_key = 'id';	
-	protected $_metadata = array(
+	public $_metadata = array(
 		'id' => array(
 			'type' => 'int',
 			'length' => 10

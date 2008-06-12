@@ -17,11 +17,24 @@ class Request {
 	 */
 	static protected $instance = null;
 	
+	/** Copy of the config data to make it easier to get to */
+	protected $config = null;
+
 	/**
  	 * Object containing all get, post, and cookie variables
 	 */
 	public $params = null;
 
+	/**
+	 * Defined routes
+	 */
+	static protected $routes = array();
+
+	/**
+	 * Route being used for the current request
+	 */
+	public $route = null;
+	
 	/**
  	 * Controller that is handling request
 	 */
@@ -61,12 +74,14 @@ class Request {
 			$this->setAction($this->config->app->defaultAction);
 		}
 
+		$this->loadRoutes();
 		$this->routeRequest();
 	}
 	
 	/**
 	 * Retrieve the current instance of the request class
 	 *
+	 * @access	public
 	 * @return 	object
 	 */
 	public function getInstance() {
@@ -74,6 +89,33 @@ class Request {
 			self::$instance = new Request();
 		}
 		return self::$instance;
+	}
+
+	/**
+	 * Load all defined routes
+	 *
+	 * @access	public
+	 * @return	bool
+	 */
+	public function loadRoutes() {
+		// Clear all existing routes before loading
+		self::$routes = array();
+
+		if (file_exists($this->config->url->routes)) {
+			include $this->config->url->routes;
+		}
+	}
+
+	/**
+	 * Register a new route
+	 *
+	 * @access	public
+	 * @param	string	$regex					Regex used to match the given route
+	 * @param	array	$options				Options for the given route
+	 * @return	void
+	 */
+	public function registerRoute($regex, $options = array()) {
+		self::$routes[] = array_merge(array('regex' => $regex), $options);
 	}
 
 	/**
@@ -108,9 +150,10 @@ class Request {
 			$uri = preg_replace('#\?.*?$#', '', $uri);
 		}
 
-		$routes = is_array($this->config->routes) ? $this->config->routes : array();
-		foreach ($routes as $name => $route) {
+		foreach (self::$routes as $key => $route) {
 			if (preg_match('#^' . $route['regex'] . '(?<params>/.*?)?$#i', $uri, $matches)) {
+				$this->route = $key;
+
 				preg_match_all('#\(.*?<(.*?)>.*?\)#', $route['regex'], $keys);
 				foreach ($keys[1] as $key) {
 					if ($key == 'controller') {

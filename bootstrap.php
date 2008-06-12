@@ -25,7 +25,7 @@ foreach ($classes as $class) {
 #spl_autoload_register(array('System', 'autoload'));
 
 // Pull in any module specific config files
-System::hook('config', array($config));
+System::hook('config', array('config' => $config));
 
 // Initialize instead of request class
 $request = Request::getInstance();

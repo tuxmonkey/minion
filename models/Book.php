@@ -2,7 +2,7 @@
 class Book extends Model {
 	protected $_table = 'books';
 	protected $_key = 'isbn';	
-	protected $_metadata = array(
+	public $_metadata = array(
 		'isbn' => array(
 			'type' => 'text',
 			'length' => 16
@@ -31,7 +31,7 @@ class Book extends Model {
 		)
 	);
 	protected $_hasOne = array(
-		'publisher' => array('model' => 'Publisher', 'local' => 'publisher_id', 'foreign' => 'id'));
-	protected $_hasMany = array(
-		'authors' => array('model' => 'Author', 'local' => 'author_id', 'foreign' => 'id'));
+		'publisher' => array('model' => 'Publisher', 'local' => 'publisher_id', 'foreign' => 'id'),
+		'author' => array('model' => 'Author', 'local' => 'author_id', 'foreign' => 'id'));
+	protected $_autoload = true;
 }

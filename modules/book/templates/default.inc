@@ -7,19 +7,22 @@
 	</form>
 </div>
 
-<table width="100%">
-	<tr>
-		<td>ISBN</td>
-		<td>Title</td>
-		<td>Publisher</td>
-	</tr>
-	<?php if (is_array($books)): ?>
-	<?php foreach ($books as $book): ?>
-	<tr>
-		<td><?php echo $book->isbn ?></td>
-		<td><?php echo $book->title ?></td>
-		<td><?php echo $book->publisher ?></td>
-	</tr>
-	<?php endforeach; ?>
-	<?php endif; ?>
-</table>
+<?php echo Table::generate($books, array(
+	'exclude' => array('publisher_id', 'author_id'),
+	'format' => array(
+		'released' => 'substr("[field]", 0, 10);'
+	),
+	'actions' => array(
+		'edit' => array(
+			'replace' => array('isbn'),
+			'img' => 'http://images.ebaumsworld.com/img/cms/edit.png',
+			'url' => Link::linkTo('book', 'update', '[isbn]')
+		),
+		'delete' => array(
+			'replace' => array('isbn', 'title'),
+			'img' => 'http://images.ebaumsworld.com/img/cms/delete.png',
+			'url' => Link::linkTo('book', 'delete', '[isbn]'),
+			'click' => "return confirm('Are you sure you want to delete [title]?');"
+		)
+	)
+)) ?>

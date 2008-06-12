@@ -58,7 +58,7 @@ class DB {
 				self::$instances->{$name}->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_OBJ);
 				return self::$instances->{$name};
 			} catch (PDOException $e) {
-				System::logMessage('Failed to connect to ' . $params->host . ':' . $e->getMessage(),
+				System::logMessage('Failed to connect to ' . $params->name . ' on ' . $params->host . ':' . $e->getMessage(),
 					__FUNCTION__, __CLASS__);
 				return false;
 			}

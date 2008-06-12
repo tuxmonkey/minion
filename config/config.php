@@ -29,6 +29,7 @@ $config->url->base = '/minion/public';
 $config->url->reserved = array('ajax');
 $config->url->cleanurl = false;
 $config->url->separator = ':';
+$config->url->routes = dirname(__FILE__) . DS . 'routes.php';
 
 // Database Configuration
 $config->db['default']->type = 'mysql';
@@ -53,5 +54,3 @@ $config->cache->servers = array();
 // Pagination Configuration
 $config->paginate->limit = 20;
 $config->paginate->template = 'paginate.inc';
-
-include_once dirname(__FILE__) . DS . 'routes.php';

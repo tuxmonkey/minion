@@ -28,6 +28,10 @@ class Loader {
 				self::loadClass($item);
 			}
 		} else {
+			if (class_exists($class)) {
+				return true;
+			}
+
 			if (file_exists($config->dir->classes . DS . $class . '.class.php')) {
 				return include_once $config->dir->classes . DS . $class . '.class.php';
 			}
@@ -51,6 +55,10 @@ class Loader {
 				self::loadModel($item);
 			}
 		} else {
+			if (class_exists($model)) {
+				return true;
+			}
+
 			if (file_exists($config->dir->models . DS . $model . '.php')) {
 				return include_once $config->dir->models . DS . $model . '.php';
 			}
@@ -74,6 +82,10 @@ class Loader {
 				self::loadHelper($item);
 			}
 		} else {
+			if (class_exists($helper)) {
+				return true;
+			}
+
 			if (file_exists($config->dir->helpers . DS . $helper . '.php')) {
 				return include_once $config->dir->helpers . DS . $helper . '.php';
 			}

@@ -1,8 +1,9 @@
 <?php
 Loader::loadHelper('Link');
+Loader::loadModel('Book');
 
 class defaultController extends Controller {
 	public function defaultAction() {
-		$this->request->forward('book', 'search');
+		$book = new Book(123456);
 	}
 }

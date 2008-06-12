@@ -13,31 +13,107 @@
  **/
 class Model {
 	/** Database configuration to use if not using the default */
-	protected $dbconfig = 'default';
+	protected $_dbconfig = 'default';
 	
+	/** Copy of the config data to make it easier to get to */
+	protected $_config = null;
+
 	/** Metadata for the model table */
-	protected $metadata = array();
+	public $_metadata = array();
 	
 	/** Name of the table that is being presented by the model */
-	protected $table = null;
+	protected $_table = null;
 	
 	/** Primary Key for table model */
-	protected $key = null;
+	protected $_key = null;
+
+	/** Definitions for hasOne */
+	protected $_hasOne = null;
+
+	/** Definitions for hasMany */
+	protected $_hasMany = null;
+
+	/** Whether to autoload has* records */
+	protected $_autoload = false;
 
 	/** Caching time to live */
-	protected $ttl = false;
+	protected $_ttl = false;
 	
 	/** Enable/Disable debug mode */
-	public $debug = false;
+	public $_debug = false;
 	
-	/** Array containing data to be used in next built query */
-	protected $queryData = array();
-	
-	/** Whether or not to clear conditions, joins, etc on next query */
-	protected $clearAfter = true;
+	/** Data for the given row that is being handled */
+	protected $_data = array();
 
+	/** Fields that have been modified since the last load or save action */
+	protected $_modified = array();
+
+	/** Whether we are in a saved state or not */
+	protected $_saved = false;
+
+	/** Array containing data to be used in next built query */
+	protected $_queryData = array();
+	
 	/** The number of rows affected by the last update or delete */
-	public $affected = 0;
+	public $_affected = 0;
+
+	/**
+	 * Model constructor
+	 *
+	 * @access	public
+	 * @return	object
+	 */
+	public function __construct() {
+		$this->_config = $GLOBALS['config'];
+		if (func_num_args() > 0) {
+			if ($this->_config->cache->enabled === true && $this->_ttl !== false) {
+				$args = func_get_args();
+				$cachekey = call_user_func_array(array($this, 'generateCacheKey'), $args);
+				$result = CacheManager::get($cachekey);
+				if ($result !== false) {
+					return $result;
+				}
+			}
+			
+			if (func_num_args() > 1 && is_array($this->_key)) {
+				foreach ($this->_key as $key => $field) {
+					$arg = func_get_arg($key);
+					$this->where($field . ' = ?', $arg);
+				}
+			} else {
+				$arg = func_get_arg(0);
+				$this->where($this->_key . ' = ?', $arg);
+			}
+
+			$result = $this->limit(1)->import()->find();
+			if ($result === true) {
+				if ($this->_config->cache->enabled === true && $this->_ttl !== false) {
+					CacheManager::set($cachekey, $this, $this->_ttl);
+				}
+		
+				$this->setSaveState(true);	
+			}
+		}
+
+		if ($this->_autoload === true) {
+			$_ENV['autoloading'][get_class($this)] = true;
+			if (is_array($this->_hasOne)) {
+				foreach ($this->_hasOne as $key => $definition) {
+					if (!in_array($definition['model'], array_keys($_ENV['autoloading']))) {
+						$this->{$key};
+					}
+				}
+			}
+			if (is_array($this->_hasMany)) {
+				foreach ($this->_hasMany as $key => $definition) {
+					if (!in_array($definition['model'], array_keys($_ENV['autoloading']))) {
+						$this->{$key};
+					}
+				}
+			}
+			unset($_ENV['autoloading'][get_class($this)]);
+		}
+	}		
 	
 	/**
 	 * Magic method for retrieval of rows by fields existing in the table.
@@ -51,110 +127,79 @@ class Model {
 	 * @return 	mixed
 	 */
 	protected function __call($funcname, $params = array()) {
-		$fields = join('|', array_keys($this->metadata));
+		$fields = join('|', array_keys($this->_metadata));
 		if (preg_match('/^findBy(' . $fields . ')$/i', $funcname, $match)) {
 			$field = trim($match[1]);
 			$value = trim($params[0]);
 			$operator = $params[1] === true ? 'like' : '=';
-			$this->addWhere("$field $operator ?", $value);
-			return $this->select();
+			$this->where("$field $operator ?", $value);
+			return $this->find();
 		} else {
 			return null;
 		}
 	}
 
-	protected function __get($var) {
-		if (in_array($var, array_keys($this->hasOne))) {
-			$class = $this->hasOne[$var]['model'];
-			Loader::loadModel($class);
-			$obj = new $class;
-			$obj->addWhere($this->hasOne[$var]['foreign'] . ' = ?', $this->{$this->hasOne[$var]['local']});
-			$obj->limit(1);
-			$this->{$var} = $obj->select(true);
-			return $this->{$var};
-		} else if (in_array($var, array_keys($this->hasMany))) {
-			$class = $this->hasMany[$var]['model'];
-			Loader::loadModel($class);
-			$obj = new $class;
-			$obj->addWhere($this->hasMany[$var]['foreign'] . ' = ?', $this->{$this->hasMany[$var]['local']});
-			$this->{$var} = $obj->select();
-			return $this->{$var};
-		}
-	}
-
-	/**
-	 * Retrieve a row searching by the primary key of the table
-	 *
-	 * @access	public
-	 * @param	mixed	$value			Value to match the primary key against
-	 * @return	mixed
-	 */	
-	public function findByPK($value) {
-		global $config;
-	
-		if ($config->cache->enabled === true && $this->ttl !== false) {
-			if (func_num_args() > 1 && is_array($this->key)) {
-				$memkey = $this->table . '-pk-' . join('-', func_get_args());
-			} else {
-				$memkey = $this->table . '-pk-' . $value;
-			}
-			$result = CacheManager::get($memkey);
-			if ($result !== false) {
-				return $result;
-			}
-		}
-		
-		if (func_num_args() > 1 && is_array($this->key)) {
-			foreach ($this->key as $key => $field) {
-				$this->addWhere($field . ' = ?', func_get_arg($key));
-			}
+	protected function __set($var, $value) {
+		if (in_array($var, array_keys($this->_metadata))) {
+			$this->_data[$var] = $value;
+			$this->_modified[] = $var;
+			$this->setSaveState(false);
 		} else {
-			$this->addWhere($this->key . ' = ?', $value);
+			$this->{$var} = $value;
 		}
+	}
 
-		$row = $this->limit(1)->select(true);
-		
-		if (is_object($row)) {
-			if ($config->cache->enabled === true && $this->ttl !== false) {
-				CacheManager::set($memkey, $row, $this->ttl);
+	protected function __isset($var) {
+		return isset($this->_data[$var]);
+	}
+
+	protected function __get($var) {
+		if (in_array($var, array_keys($this->_metadata))) {
+			return $this->_data[$var];
+		} else {
+			if (is_array($this->_hasOne) && in_array($var, array_keys($this->_hasOne))) {
+				$class = $this->_hasOne[$var]['model'];
+				Loader::loadModel($class);
+				$obj = new $class;
+				$obj->where($this->_hasOne[$var]['foreign'] . ' = ?', $this->{$this->_hasOne[$var]['local']});
+				$obj->limit(1);
+				list($this->{$var}) = $obj->find();
+				return $this->{$var};
+			} else if (is_array($this->_hasMany) && in_array($var, array_keys($this->_hasMany))) {
+				$class = $this->_hasMany[$var]['model'];
+				Loader::loadModel($class);
+				$obj = new $class;
+				$obj->where($this->_hasMany[$var]['foreign'] . ' = ?', $this->{$this->_hasMany[$var]['local']});
+				$this->{$var} = $obj->find();
+				return $this->{$var};
 			}
-			return $row;
 		}
-		return false;
 	}
-		
-	/**
-	 * Retrieve a set of rows based on the "page" they would be on.
-	 *
-	 * @access	public
-	 * @param	int		$page			Page number to retrieve items for
-	 * @param	int		$items			Number of items per page
-	 * @return 	array
-	 */
-	public function selectByPage($page = 1, $items = 25) {
-		return $this->limit($items)->offset(($items * ($page - 1)))->select();
-	}
-	
-	public function select($single = false) {
-		$db = DB::getInstance($this->dbconfig);
+
+	public function find($single = false) {
+		$db = DB::getInstance($this->_dbconfig);
 		if (!($db instanceof PDO)) {
-			System::logMessage('Failed connecting to database source: ' . $this->dbconfig, __FUNCTION__, __CLASS__);
 			return false;
 		}
 
 		$sql = $this->buildQuery('SELECT');
-		var_dump($sql);
 		try {
 			$stmt = $db->prepare($sql);
-			$params = is_array($this->queryData['whereParams'])
-				? $this->queryData['whereParams'] : array();
-			$params = is_array($this->queryData['havingParams'])
-				? array_merge($params, $this->queryData['havingParams']) : $params;
-			$stmt->setFetchMode(PDO::FETCH_CLASS, get_class($this));
+			$params = is_array($this->_queryData['whereParams'])
+				? $this->_queryData['whereParams'] : array();
+			$params = is_array($this->_queryData['havingParams'])
+				? array_merge($params, $this->_queryData['havingParams']) : $params;
+			if (isset($this->_queryData['import'])) {
+				$stmt->setFetchMode(PDO::FETCH_INTO, $this);
+			} else {
+				$stmt->setFetchMode(PDO::FETCH_CLASS, get_class($this));
+			}
 			$stmt->execute($params);
-			$result = $stmt->fetchAll();
-			if (count($result) == 1 && $single === true) {
-				$result = $result[0];
+			if (isset($this->_queryData['import'])) {
+				$stmt->fetch();
+				$result = true;
+			} else {
+				$result = $single === true ? $stmt->fetchColumn(0) : $stmt->fetchAll();
 			}
 		} catch (PDOException $e) {
 			System::logMessage($e->getMessage(), __FUNCTION__, __CLASS__);
@@ -165,6 +210,19 @@ class Model {
 		return $result;
 	}
 
+	/**
+	 * Retrieve a set of rows based on the "page" they would be on.
+	 *
+	 * @access	public
+	 * @param	int		$page			Page number to retrieve items for
+	 * @param	int		$items			Number of items per page
+	 * @return 	array
+	 */
+	public function findByPage($page = 1, $items = null) {
+		$items = !is_null($items) ? $items : $this->_config->paginate->limit;
+		return $this->limit($items)->offset($items * ($page - 1))->find();
+	}
+	
 	/**
 	 * Insert new row into the table
 	 *
@@ -177,9 +235,8 @@ class Model {
 			System::logMessage('Data not passed as array', __FUNCTION__, __CLASS__);
 		}
 
-		$db = DB::getInstance($this->dbconfig);
+		$db = DB::getInstance($this->_dbconfig);
 		if (!($db instanceof PDO)) {
-			System::logMessage('Failed connecting to database source: ' . $this->dbconfig, __FUNCTION__, __CLASS__);
 			return false;
 		}
 
@@ -187,8 +244,8 @@ class Model {
 		try {
 			$stmt = $db->prepare($sql);
 			$result = $stmt->execute(array_values($data));
-			if ($result === true && !is_array($this->key) && !isset($this->{$this->key})) {
-				$this->{$this->key} = $db->lastInsertId();
+			if ($result === true && !is_array($this->_key) && !isset($this->{$this->_key})) {
+				$this->{$this->_key} = $db->lastInsertId();
 			}
 			return $result;
 		} catch (PDOException $e) {
@@ -210,16 +267,15 @@ class Model {
 			return false;
 		}
 	
-		$db = DB::getInstance($this->dbconfig);
+		$db = DB::getInstance($this->_dbconfig);
 		if (!($db instanceof PDO)) {
-			System::logMessage('Failed connecting to database source: ' . $this->dbconfig, __FUNCTION__, __CLASS__);
 			return false;
 		}
 
 		$sql = $this->buildQuery('UPDATE', $data);
 		$params = array_values($data);
-		$params = is_array($this->queryData['whereParams'])
-			? array_merge($params, $this->queryData['whereParams']) : $params;
+		$params = is_array($this->_queryData['whereParams'])
+			? array_merge($params, $this->_queryData['whereParams']) : $params;
 		
 		try {
 			$stmt = $db->prepare($sql);
@@ -227,13 +283,19 @@ class Model {
 				$stmt->bindValue(($key + 1), $val);
 			}
 			$result = $stmt->execute();
-			$this->affected = $stmt->rowCount();
-			$this->clearQuery();
-			return $result;
+			$this->_affected = $stmt->rowCount();
+			
+			if ($this->_config->cache->enabled === true && $retval === true) {
+				$cachekey = $this->generateCacheKey();
+				CacheManager::delete($cachekey);
+			}
 		} catch (PDOException $e) {
 			System::logMessage($e->getMessage(), __FUNCTION__, __CLASS__);
 			return false;
 		}
+		
+		$this->clearQuery();
+		return $result;
 	}
 	
 	/**
@@ -243,44 +305,28 @@ class Model {
 	 * @return 	bool
 	 */
 	public function delete() {
-		
-		if (@count($this->_where) == 0) {
+		$db = DB::getInstance($this->_dbconfig);
+		if (!($db instanceof PDO)) {
 			return false;
 		}
-		
-		$params = array();
-		$where = $this->_getWhereClause($params);
-		$where = !empty($where) ? ' WHERE ' . $where : '';
-		
-		$sql = "DELETE FROM " . $this->_table . $where;
-		
-		if ($this->_debug === true) {
-			System::debugMessage('Query: ' . $sql, __FUNCTION__, __CLASS__);
-		}
-		
+
+		$sql = $this->buildQuery('DELETE');
 		try {
-			$stmt = $this->_db->prepare($sql);
-			foreach ($params as $key => $val) {
-				$stmt->bindValue(($key + 1), $val);
-			}
-			$retval = $stmt->execute();
+			$stmt = $db->prepare($sql);
+			$retval = $stmt->execute($this->_queryData['whereParams']);
 			$this->_affected = $stmt->rowCount();
-            if (is_array($this->_key)) {
-                foreach ($this->_key as $key) {
-                    $id .= '-' . $this->$key;
-                }
-            } else {
-                $id = '-' . $this->{$this->_key};
-            }
-			if ($config->cache->enabled === true && $retval === true) {
-	            $memkey = $this->_table . '-key-' . $id;
-				CacheManager::delete($memkey);
+			
+			if ($this->_config->cache->enabled === true && $retval === true) {
+				$cachekey = $this->generateCacheKey();
+				CacheManager::delete($cachekey);
 			}
-			return $retval;
 		} catch (PDOException $e) {
 			System::logMessage($e->getMessage(), __FUNCTION__, __CLASS__);
 			return false;
 		}
+
+		$this->clearQuery();
+		return $retval;
 	}
 	
 	/**
@@ -288,35 +334,51 @@ class Model {
 	 *
 	 * @access	public
 	 * @param	string	$method				Method to be used for the save (insert|update)
-	 * @param	array	$fields				List of fields to save
+	 * @param	bool	$cascade			Whether to cascade the save action
 	 * @return 	bool
 	 */
-	public function save($method = 'insert', $fields = null) {
+	public function save($method = 'insert', $cascade = false) {
+		// If we're already in a saved state don't even bother
+		if ($this->_saved === true) {
+			return true;
+		}
+
 		$data = array();
-		foreach ($this->metadata as $key => $val) {
-			if (is_array($fields)) {
-				if (in_array($key, $fields)) {
-					$data[$key] = $this->{$key};
-				}
-			} else {
-				$data[$key] = $this->{$key};
-			}		
+		foreach ($this->_modified as $field) {
+			$data[$field] = $this->_data[$field];
 		}
 
 		if ($method == 'update') {
-			if (is_array($this->key)) {
-				foreach ($this->key as $key) {
+			if (is_array($this->_key)) {
+				foreach ($this->_key as $key) {
 					$this->where($key . ' = ?', $this->{$key});
 				}
 			} else {
-				$this->where($this->key . ' = ?', $this->{$this->key});
+				$this->where($this->_key . ' = ?', $this->{$this->_key});
 			}
 		}
 
 		$retval = $this->$method($data);	
-		if ($this->config->cache->enabled === true && $retval === true) {
-			$memkey = $this->table . '-key-' . $id;
-			CacheManager::delete($memkey);
+		if ($this->_config->cache->enabled === true && $retval === true) {
+			$cachekey = $this->generateCacheKey();
+			CacheManager::delete($cachekey);
+		}
+
+		if ($cascade === true) {
+			if (is_array($this->_hasOne)) {
+				$keys = array_keys($this->_hasOne);
+				foreach ($keys as $key) {
+					$this->{$key}->save($method, $cascade);
+				}
+			}
+			if (is_array($this->_hasMany)) {
+				$keys = array_keys($this->_hasMany);
+				foreach ($keys as $key) {
+					foreach ($this->{$key} as $row) {
+						$row->save($method, $cascade);
+					}
+				}
+			}
 		}
 		return $retval;
 	}
@@ -330,7 +392,7 @@ class Model {
 	 */
 	public function fields($fields) {
 		if (!empty($fields)) {
-			$this->queryData['fields'] = $fields;
+			$this->_queryData['fields'] = $fields;
 		}
 		return $this;
 	}
@@ -340,26 +402,26 @@ class Model {
 	 * Conditions may included place holders for prepared parameters,
 	 * and then pass the parameters as extra arguments to the function.
 	 * For example:
-	 *		Model::addWhere('first_name = ?', 'Bob');
+	 *		Model::where('first_name = ?', 'Bob');
 	 *
 	 * You can also pass multiple conditions in one call to the method
 	 * by simply adding AND/OR between conditions, Example:
-	 *		Model::addWhere('first_name = ? AND last_name = ?', 'Bob', 'Smith');
+	 *		Model::where('first_name = ? AND last_name = ?', 'Bob', 'Smith');
 	 *
 	 * @access	public
 	 * @param	array 	$conditions		Condition(s) to be added to the stack
 	 * @return 	object
 	 */
 	public function where($condition) {
-		$this->queryData['where'][] = $condition;
+		$this->_queryData['where'][] = $condition;
 		$numargs = func_num_args();
 		if ($numargs > 1) {
 			for ($x = 1; $x < $numargs; $x++) {
 				$param = func_get_arg($x);
 				if (is_array($param)) {
-					$this->queryData['whereParams'][] = join(',', $params);
+					$this->_queryData['whereParams'][] = join(',', $params);
 				} else {
-					$this->queryData['whereParams'][] = $param;
+					$this->_queryData['whereParams'][] = $param;
 				}
 			}
 		}
@@ -384,7 +446,7 @@ class Model {
 				$this->groupBy($field);
 			}
 		} else {
-			$this->queryData['groupBy'][] = trim($field);
+			$this->_queryData['groupBy'][] = trim($field);
 		}
 		return $this;
 	}
@@ -401,7 +463,7 @@ class Model {
 	 */
 	public function orderby($order) {
 		if (!empty($order)) {
-			$this->queryData['orderBy'][] = trim($order);
+			$this->_queryData['orderBy'][] = trim($order);
 		}
 		return $this;
 	}
@@ -415,7 +477,7 @@ class Model {
 	 */
 	public function limit($limit) {
 		if (is_numeric($limit)) {
-			$this->queryData['limit'] = $limit;
+			$this->_queryData['limit'] = $limit;
 		}
 		return $this;
 	}
@@ -429,39 +491,20 @@ class Model {
 	 */
 	public function offset($offset) {
 		if (is_numeric($offset)) {
-			$this->queryData['offset'][] = $offset;
+			$this->_queryData['offset'][] = $offset;
 		}
 		return $this;
 	}
 	
 	/**
-	 * Add a join statement for the next select query.  Takes a 5-element array with
-	 * the type, table, source field, and destination field, and optional index hint 
-	 * for the join.  Can also take an array of such arrays, for multiple joins, or 
-	 * the 5 values as separate parameters for a single join.
+	 * Add a join statement for the next select query.  
 	 *
 	 * @access	public
-	 * @param	array 	$joins	Join statements to add.
+	 * @param	string	$join				Join statement to add
 	 * @return 	object
 	 */
-	public function join($joins) {
-		if (is_string($joins)) {
-			$joins = array();
-			for ($i = 0; $i < func_num_args(); $i++) {
-				$joins[$i] = func_get_arg($i);
-			}
-		}
-		
-		if (is_array($joins[0])) {
-			foreach ( $joins as $join ) {
-				$item = array('type' => $join[0], 'table' => $join[1], 'src' => $join[2], 'dest' => $join[3], 'hint' => $join[4]);
-				$this->_join[] = $item;
-			}
-		} else {
-			$item = array('type' => $joins[0], 'table' => $joins[1], 'src' => $joins[2], 'dest' => $joins[3], 'hint' => $joins[4]);
-			$this->_join[] = $item;
-		}
-		
+	public function join($join) {
+		$this->_queryData['joins'][] = $join;
 		return $this;
 	}
 	
@@ -473,7 +516,7 @@ class Model {
 	 * @return 	object
 	 */
 	public function optHint($hint) {
-		$this->_optHint = $hint;
+		$this->_queryData['optHint'] = $hint;
 		return $this;
 	}
 	
@@ -485,7 +528,7 @@ class Model {
 	 * @return 	object
 	 */
 	public function indexHint($hint) {
-		$this->_indexHint = $hint;
+		$this->_queryData['indexHint'] = $hint;
 		return $this;
 	}	
 	
@@ -498,21 +541,25 @@ class Model {
 	 * @return 	object
 	 */
 	public function clearAfter($clear = true) {
-		$this->_clearAfter = is_bool($clear) ? $clear : true;
+		if ($clear === false) {
+			$this->_queryData['clearAfter'] = 0;
+		} else if (isset($this->_queryData['clearAfter'])) {
+			unset($this->_queryData['clearAfter']);
+		}
 		return $this;
 	}
 	
-	protected function buildQuery($type = 'SELECT', $data = null) {
+	protected function buildQuery($type = 'SELECT', &$data = null) {
 		switch (strtoupper($type)) {
 			case 'SELECT':
 				$sql  = "SELECT ";
-				$sql .= isset($this->queryData['fields']) ? $this->queryData['fields'] : '*';
-				$sql .= " FROM " . $this->table;
+				$sql .= isset($this->_queryData['fields']) ? $this->_queryData['fields'] : '*';
+				$sql .= " FROM " . $this->_table;
 				break;
 
 			case 'INSERT':
 				if (is_array($data) && count($data) > 0) {
-					$sql  = "INSERT INTO " . $this->table . " (" . join(',', array_keys($data)) . ") ";
+					$sql  = "INSERT INTO " . $this->_table . " (" . join(',', array_keys($data)) . ") ";
 					$sql .= "VALUES(" . (count($data) > 1 ? str_repeat('?,', count($data) - 1) : '') . "?)";
 				}
 				break;
@@ -521,7 +568,7 @@ class Model {
 				if (is_array($data) && count($data) > 0) {
 					foreach ($data as $key => $val) {
 						$dataset .= !empty($dataset) ? ', ' : '';
-						if (substr($val, 0, 1) == '=' && $allow_literals) {
+						if ($val[0] == '=' && $this->_metadata[$key]['allowLiteral'] === true) {
 							$dataset .= $key . ' = ' . substr($val, 1) . ' ';
 							unset($data[$key]);
 						} else {
@@ -529,41 +576,38 @@ class Model {
 						}
 					}
 				}
+
+				$sql = "UPDATE " . $this->_table . " SET " . $dataset;
 				break;
 
 			case 'DELETE':
-				$sql = "DELETE FROM " . $this->table;
+				$sql = "DELETE FROM " . $this->_table;
+
+				if (!is_array($this->_queryData['where']) || count($this->_queryData['where']) == 0
+				|| !is_array($this->_queryData['whereParams']) || count($this->_queryData['whereParams']) == 0) {
+					if (is_array($this->_key)) {
+						foreach ($this->_key as $key) {
+							$this->where($key . ' = ?', $this->{$key});
+						}
+					} else {
+						$this->where($this->_key . ' = ?', $this->{$this->_key});
+					}
+				}
 				break;
 		}
 
-		if (isset($this->queryData['joins'])) {
-			foreach ($this->queryData['joins'] as $join) {
-				$sql .= ' ' . $join['type'] . ' JOIN ' . $join['table'];
-				$sql .= ' ' . $join['local'] . ' = ' . $join['foreign'];
-			}
-		}
-	
-		if (isset($this->queryData['where'])) {
-			$conditions = join(' AND ', $this->queryData['where']);
-			if (!empty($conditions)) {
-				$sql .= " WHERE " . $conditions;
-			}
+		$sql .= isset($this->_queryData['joins']) ? ' ' . join(' ', $this->_queryData['joins']) : '';
+		$sql .= isset($this->_queryData['where']) ? ' WHERE ' . join(' AND ', $this->_queryData['where']) : '';
+		$sql .= isset($this->_queryData['groupBy']) ? ' GROUP BY ' . join(',', $this->_queryData['groupBy']) : '';
+		$sql .= isset($this->_queryData['having']) ? ' HAVING ' . join(' AND ', $this->_queryData['having']) : '';
+		$sql .= isset($this->_queryData['orderBy']) ? ' ORDER BY ' . join(',', $this->_queryData['orderBy']) : '';
+		$sql .= isset($this->_queryData['limit']) ? ' LIMIT ' . $this->_queryData['limit'] : '';
+		$sql .= isset($this->_queryData['offset']) ? ' OFFSET ' . join(',', $this->_queryData['offset']) : '';
+
+		if ($this->_debug === true) {
+			System::debugMessage('Query: ' . $sql, __FUNCTION__, __CLASS__);
 		}
 
-		if (isset($this->queryData['groupBy'])) {
-			$sql .= " GROUP BY " . join(',', $this->queryData['groupBy']);
-		}
-
-		if (isset($this->queryData['having'])) {
-			$conditions = join(' AND ', $this->queryData['having']);
-			if (!empty($conditions)) {
-				$sql .= " HAVING " . $conditions;
-			}
-		}
-
-		$sql .= isset($this->queryData['orderBy']) ? " ORDER BY " . join(',', $this->queryData['orderBy']) : '';
-		$sql .= isset($this->queryData['limit']) ? " LIMIT " . $this->queryData['limit'] : '';
-		$sql .= isset($this->queryData['offset']) ? " OFFSET " . join(',', $this->queryData['offset']) : '';
 		return $sql;
 	}
 
@@ -585,6 +629,57 @@ class Model {
 	 * @return	void
 	 */
 	public function clearQuery() {
-		$this->_queryData = array();
+		if (isset($this->_queryData['clearAfter'])) {
+			$this->clearAfter();
+		} else {
+			$this->_queryData = array();
+		}
+		return $this;
 	}
+
+	public function setSaveState($state) {
+		$this->_saved = $state;
+		return $this;
+	}
+
+	public function setDB($dbconfig) {
+		$this->_dbconfig = $dbconfig;
+		return $this;
+	}
+
+	public function setTTL($ttl) {
+		$this->_ttl = $ttl;
+		return $this;
+	}
+
+	public function import() {
+		$this->_queryData['import'] = true;
+		return $this;
+	}
+
+	/**
+	 * Generate the cache key for the current object
+	 *
+	 * @access	public
+	 * @return	string
+	 */
+	public function generateCacheKey() {
+		if (func_num_args() > 0) {
+			if (is_array($this->_key)) {
+				$cachekey = $this->_table . '-pk-' . join('-', func_get_args());
+			} else {
+				$cachekey = $this->_table . '-pk-' . func_get_arg(0);
+			}
+		} else {
+			if (is_array($this->_key)) {
+				$cachekey = $this->_table . '-pk';
+				foreach ($this->_key as $key) {
+					$cachekey .= '-' . $this->{$key};
+				}
+			} else {
+				$cachekey = $this->_table . '-pk-' . $this->{$this->_key};
+			}
+		}
+		return $cachekey;
+	}	
 }
